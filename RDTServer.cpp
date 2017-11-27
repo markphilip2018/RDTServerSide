@@ -40,7 +40,8 @@ using namespace std;
     this function to get the size of the requested file
     @file_name the name of the file
 */
-int get_file_size(string file_name){
+int get_file_size(string file_name)
+{
 
     FILE *source;
     source = fopen(file_name.c_str(), "r+b");
@@ -58,7 +59,7 @@ int get_file_size(string file_name){
 int read_file(char *values,string file_name)
 {
     FILE *source;
-    int i ,c;
+    int i,c;
     source = fopen(file_name.c_str(), "r+b");
 
     fseek(source, 0, SEEK_END);
@@ -94,14 +95,59 @@ void *get_in_addr(struct sockaddr *sa)
 }
 
 
-void stop_and_wait(char values[]){
+void stop_and_wait(char values[], int sockfd, struct sockaddr_storage their_addr, socklen_t addr_len)
+{
+
+    char data[500];
+    struct packet *p;
+    int counter = 0;
+    int numbytes;
+    int i ;
+
+    for( i = 0 ; i < strlen(values); i++)
+    {
+
+        if((i+1)%500 == 0)
+        {
+            p->len = 500;
+            p->seqno = counter++;
+
+            if ((numbytes = sendto(sockfd,(const char*)p, strlen((const char*)p), 0,
+                                   (struct sockaddr *)&their_addr, addr_len)) == -1)
+            {
+                perror("talker: sendto");
+                exit(1);
+            }
+
+            //char data[500];
+            struct packet *p;
+        }
+        else
+        {
+            p->data[i%500] = values[i];
+        }
+    }
+
+    if((i%500) != 0)
+    {
+        p->len = i%500;
+        p->seqno = counter++;
+       // p.data = data;
+        if ((numbytes = sendto(sockfd,(const char*)p, strlen((const char*)p), 0,
+                               (struct sockaddr *)&their_addr, addr_len)) == -1)
+        {
+            perror("talker: sendto");
+            exit(1);
+        }
+    }
+
 
 }
 /**
     this function to send the packets to the client
     @file_name the name of the file
 */
-void send_packets(string file_name)
+void send_packets(string file_name , int sockfd, struct sockaddr_storage their_addr, socklen_t addr_len)
 {
     cout<<file_name<<endl;
     char values[get_file_size(file_name)] ;
@@ -109,7 +155,8 @@ void send_packets(string file_name)
     cout<<"values:"<<values<<endl;
 
     /// here create a packet
-    stop_and_wait(values);
+    // (char values[], int sockfd, struct sockaddr_storage their_addr, socklen_t addr_len)
+    stop_and_wait(values , sockfd , their_addr , addr_len);
 }
 int main(void)
 {
@@ -165,7 +212,7 @@ int main(void)
         exit(1);
     }
 
-     buf[numbytes] = '\0';
+    buf[numbytes] = '\0';
 
     char * ack_message = "ACK File" ;
     if ((numbytes = sendto(sockfd,ack_message, strlen(ack_message), 0,
@@ -174,13 +221,10 @@ int main(void)
         perror("talker: sendto");
         exit(1);
     }
+    // (char values[], int sockfd, struct sockaddr_storage their_addr, socklen_t addr_len)
+    send_packets(buf , sockfd , their_addr , addr_len);
 
-    send_packets(buf);
 
-    printf("listener: got packet from %s\n",
-           inet_ntop(their_addr.ss_family,
-                     get_in_addr((struct sockaddr *)&their_addr),
-                     s, sizeof s));
 
     return 0;
 }
