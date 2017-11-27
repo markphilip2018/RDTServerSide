@@ -58,7 +58,7 @@ int get_file_size(string file_name){
 int read_file(char *values,string file_name)
 {
     FILE *source;
-
+    int i ,c;
     source = fopen(file_name.c_str(), "r+b");
 
     fseek(source, 0, SEEK_END);
@@ -67,7 +67,7 @@ int read_file(char *values,string file_name)
     fseek(source, 0, SEEK_SET);
     if (source != NULL)
     {
-        for (i = 0; i < sz; i++)
+        for ( i = 0; i < sz; i++)
         {
             c = fgetc(source); // Get character
             values[i] = c; // Store characters in array
@@ -93,6 +93,10 @@ void *get_in_addr(struct sockaddr *sa)
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
+
+void stop_and_wait(char values[]){
+
+}
 /**
     this function to send the packets to the client
     @file_name the name of the file
@@ -105,7 +109,7 @@ void send_packets(string file_name)
     cout<<"values:"<<values<<endl;
 
     /// here create a packet
-   // stop_and_wait(values);
+    stop_and_wait(values);
 }
 int main(void)
 {
