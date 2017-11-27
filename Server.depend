@@ -1,0 +1,40 @@
+# depslib dependency file v1.0
+1511799473 source:/home/mark/codeBlocks/Server/main.cpp
+
+1511794162 /home/mark/codeBlocks/Server/packet_struct.h
+
+1511804804 source:/home/mark/codeBlocks/Server/RDTServer.cpp
+	<iostream>
+	<stdio.h>
+	<stdlib.h>
+	<unistd.h>
+	<errno.h>
+	<string.h>
+	<sys/types.h>
+	<sys/socket.h>
+	<netinet/in.h>
+	<arpa/inet.h>
+	<netdb.h>
+	<string.h>
+	<sys/types.h>
+	<sys/socket.h>
+	<netinet/in.h>
+	<fstream>
+	<netdb.h>
+	<arpa/inet.h>
+	<sys/wait.h>
+	<signal.h>
+	<vector>
+	<algorithm>
+	<fstream>
+	<sstream>
+	<sys/stat.h>
+	<sys/sendfile.h>
+	<fcntl.h>
+	<time.h>
+	<sys/mman.h>
+	<sys/types.h>
+	<sys/wait.h>
+	<unistd.h>
+	"packet_struct.h"
+
