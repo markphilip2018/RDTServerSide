@@ -30,6 +30,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <algorithm>
 #include "packet_struct.h"
 #define MYPORT "4950" // the port users will be connecting to
 #define MAXBUFLEN 100
@@ -56,22 +57,25 @@ int get_file_size(string file_name)
     @param values to put the data into it
     @file_name the name of the file
 */
-int read_file(char *values,string file_name)
+int read_file(char *values,string file_name,int sz , int start , int end)
 {
     FILE *source;
-    int i,c;
+    int i;
+    char c;
     source = fopen(file_name.c_str(), "r+b");
 
-    fseek(source, 0, SEEK_END);
-    int sz = ftell(source);
-    cout <<"size: "<<sz;
     fseek(source, 0, SEEK_SET);
+
     if (source != NULL)
     {
-        for ( i = 0; i < sz; i++)
+        int counter = 0;
+        for(int j = 0 ; j < start ; j++)
+            c = fgetc(source);
+
+        for ( i = start; i < min(end,sz); i++)
         {
             c = fgetc(source); // Get character
-            values[i] = c; // Store characters in array
+            values[counter++] = c; // Store characters in array
         }
     }
     else
@@ -80,9 +84,6 @@ int read_file(char *values,string file_name)
         return 0;
     }
     fclose(source);
-
-    /* Add null to end string */
-    values[i] = '\0';
 }
 
 void *get_in_addr(struct sockaddr *sa)
@@ -95,17 +96,20 @@ void *get_in_addr(struct sockaddr *sa)
 }
 
 
-void stop_and_wait(char values[], int sockfd, struct sockaddr_storage their_addr, socklen_t addr_len)
+void stop_and_wait(string file_name,int file_sz, int sockfd, struct sockaddr_storage their_addr, socklen_t addr_len)
 {
 
-    char data[500];
     struct packet p;
     int counter = 0;
     int numbytes;
     int i ;
+    char values[500] ;
+    read_file(values,file_name ,file_sz, 0 , 500);
+    int send_sz = 0;
 
-    for( i = 0 ; i < strlen(values); i++)
+    for( i = 0 ; i < file_sz; i++)
     {
+        p.data[i%500] = values[i%500];
 
         if((i+1)%500 == 0)
         {
@@ -119,26 +123,43 @@ void stop_and_wait(char values[], int sockfd, struct sockaddr_storage their_addr
                 exit(1);
             }
 
-            //char data[500];
-            struct packet *p;
-        }
-        else
-        {
-            p.data[i%500] = values[i];
+            struct ack_packet acknowledgement;
+
+            if ((numbytes = recvfrom(sockfd,(struct packet*)&acknowledgement, sizeof(acknowledgement), 0,
+                                     (struct sockaddr *)&their_addr, &addr_len)) == -1)
+            {
+                perror("recvfrom");
+                exit(1);
+            }
+
+            cout<< "receive ack num: "<<acknowledgement.ackno<<endl;
+            send_sz+=500;
+            read_file(values,file_name ,file_sz, send_sz , send_sz+500);
         }
     }
 
-    if((i%500) != 0)
+    if((i+1)%500 != 0)
     {
         p.len = i%500;
         p.seqno = counter++;
-       // p.data = data;
+        p.data[i%500] = '\0';
         if ((numbytes = sendto(sockfd,(struct packet*)&p, sizeof(p), 0,
                                (struct sockaddr *)&their_addr, addr_len)) == -1)
         {
             perror("talker: sendto");
             exit(1);
         }
+
+        struct ack_packet acknowledgement;
+
+        if ((numbytes = recvfrom(sockfd,(struct packet*)&acknowledgement, sizeof(acknowledgement), 0,
+                                 (struct sockaddr *)&their_addr, &addr_len)) == -1)
+        {
+            perror("recvfrom");
+            exit(1);
+        }
+
+        cout<< "receive final ack num: "<<acknowledgement.ackno<<endl;
     }
 
 
@@ -147,16 +168,16 @@ void stop_and_wait(char values[], int sockfd, struct sockaddr_storage their_addr
     this function to send the packets to the client
     @file_name the name of the file
 */
-void send_packets(string file_name , int sockfd, struct sockaddr_storage their_addr, socklen_t addr_len)
+void send_packets(string file_name, int sockfd, struct sockaddr_storage their_addr, socklen_t addr_len)
 {
     cout<<file_name<<endl;
-    char values[get_file_size(file_name)] ;
-    read_file(values,file_name);
-    cout<<"values:"<<values<<endl;
+    //char values[get_file_size(file_name)] ;
+    //read_file(values,file_name);
+    //cout<<"values:"<<values<<endl;
 
     /// here create a packet
     // (char values[], int sockfd, struct sockaddr_storage their_addr, socklen_t addr_len)
-    stop_and_wait(values , sockfd , their_addr , addr_len);
+    stop_and_wait(file_name,get_file_size(file_name), sockfd, their_addr, addr_len);
 }
 int main(void)
 {
@@ -222,7 +243,7 @@ int main(void)
         exit(1);
     }
     // (char values[], int sockfd, struct sockaddr_storage their_addr, socklen_t addr_len)
-    send_packets(buf , sockfd , their_addr , addr_len);
+    send_packets(buf, sockfd, their_addr, addr_len);
 
 
 
