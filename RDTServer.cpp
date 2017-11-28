@@ -99,7 +99,7 @@ void stop_and_wait(char values[], int sockfd, struct sockaddr_storage their_addr
 {
 
     char data[500];
-    struct packet *p;
+    struct packet p;
     int counter = 0;
     int numbytes;
     int i ;
@@ -109,10 +109,10 @@ void stop_and_wait(char values[], int sockfd, struct sockaddr_storage their_addr
 
         if((i+1)%500 == 0)
         {
-            p->len = 500;
-            p->seqno = counter++;
+            p.len = 500;
+            p.seqno = counter++;
 
-            if ((numbytes = sendto(sockfd,(const char*)p, strlen((const char*)p), 0,
+            if ((numbytes = sendto(sockfd,(struct packet*)&p, sizeof(p), 0,
                                    (struct sockaddr *)&their_addr, addr_len)) == -1)
             {
                 perror("talker: sendto");
@@ -124,16 +124,16 @@ void stop_and_wait(char values[], int sockfd, struct sockaddr_storage their_addr
         }
         else
         {
-            p->data[i%500] = values[i];
+            p.data[i%500] = values[i];
         }
     }
 
     if((i%500) != 0)
     {
-        p->len = i%500;
-        p->seqno = counter++;
+        p.len = i%500;
+        p.seqno = counter++;
        // p.data = data;
-        if ((numbytes = sendto(sockfd,(const char*)p, strlen((const char*)p), 0,
+        if ((numbytes = sendto(sockfd,(struct packet*)&p, sizeof(p), 0,
                                (struct sockaddr *)&their_addr, addr_len)) == -1)
         {
             perror("talker: sendto");
