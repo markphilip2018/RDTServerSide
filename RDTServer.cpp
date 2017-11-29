@@ -103,7 +103,7 @@ int send_and_wait(string file_name,int file_sz, int sockfd, struct sockaddr_stor
     struct packet p;
     int counter = 0;
     int numbytes;
-
+    bool first_time = true ;
     FILE *source;
     int i;
     char c;
@@ -123,36 +123,50 @@ int send_and_wait(string file_name,int file_sz, int sockfd, struct sockaddr_stor
                 p.len = ( (i+1)%500 ==0 )? 500 : (i+1)%500;
                 p.seqno = counter++;
 
-
-                if ((numbytes = sendto(sockfd,(struct packet*)&p, sizeof(p), 0,
-                                       (struct sockaddr *)&their_addr, addr_len)) == -1)
+                while(1)
                 {
-                    perror("talker: sendto");
-                    exit(1);
+
+
+                    if ((numbytes = sendto(sockfd,(struct packet*)&p, sizeof(p), 0,
+                                           (struct sockaddr *)&their_addr, addr_len)) == -1)
+                    {
+                        perror("talker: sendto");
+                        exit(1);
+                    }
+
+
+                    struct ack_packet acknowledgement;
+
+                    timeval timeout = { 3, 0 };
+                    fd_set in_set;
+
+                    FD_ZERO(&in_set);
+                    FD_SET(sockfd, &in_set);
+
+                    // select the set
+                    int cnt = select(sockfd + 1, &in_set, NULL, NULL, &timeout);
+
+                    //cout << "cnt: "<<cnt<<endl;
+                    if (FD_ISSET(sockfd, &in_set))
+                    {
+                        if ((numbytes = recvfrom(sockfd,(struct ack_packet*)&acknowledgement, sizeof(acknowledgement), 0,
+                                                 (struct sockaddr *)&their_addr, &addr_len)) == -1)
+                        {
+                            perror("recvfrom");
+                            exit(1);
+                        }
+
+                        cout<< "receive ack num: "<<acknowledgement.ackno<<endl;
+                        break;
+                    }
+                    cout<< "timeout ack num: "<<acknowledgement.ackno<<endl;
                 }
-
-
-
-                //cout << "cnt: "<<cnt<<endl;
-
-                struct ack_packet acknowledgement;
-
-                if ((numbytes = recvfrom(sockfd,(struct packet*)&acknowledgement, sizeof(acknowledgement), 0,
-                                         (struct sockaddr *)&their_addr, &addr_len)) == -1)
-                {
-                    perror("recvfrom");
-                    exit(1);
-                }
-
-                cout<< "receive ack num: "<<acknowledgement.ackno<<endl;
             }
 
 
 
 
         }
-
-
 
     }
     else
