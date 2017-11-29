@@ -30,9 +30,13 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <algorithm>
 #include "packet_struct.h"
 #define MYPORT "4950" // the port users will be connecting to
 #define MAXBUFLEN 100
+#define PACKET_SIZE 500
+
+int seed = 5 ;
 
 using namespace std;
 
@@ -40,7 +44,8 @@ using namespace std;
     this function to get the size of the requested file
     @file_name the name of the file
 */
-int get_file_size(string file_name){
+int get_file_size(string file_name)
+{
 
     FILE *source;
     source = fopen(file_name.c_str(), "r+b");
@@ -50,27 +55,36 @@ int get_file_size(string file_name){
     return sz;
 
 }
+
+bool probability_recieve(){
+    int p= (rand() % 100) + 1;
+    cout<<"probability of receive "<<p<<endl;
+    return p > seed ;
+}
 /**
     this function to read the requested file
     @param values to put the data into it
     @file_name the name of the file
 */
-int read_file(char *values,string file_name)
+/*int read_file(char *values,string file_name,int sz, int start, int end)
 {
     FILE *source;
-    int i ,c;
+    int i;
+    char c;
     source = fopen(file_name.c_str(), "r+b");
 
-    fseek(source, 0, SEEK_END);
-    int sz = ftell(source);
-    cout <<"size: "<<sz;
     fseek(source, 0, SEEK_SET);
+
     if (source != NULL)
     {
-        for ( i = 0; i < sz; i++)
+        int counter = 0;
+        for(int j = 0 ; j < start ; j++)
+            c = fgetc(source);
+
+        for ( i = start; i < min(end,sz); i++)
         {
             c = fgetc(source); // Get character
-            values[i] = c; // Store characters in array
+            values[counter++] = c; // Store characters in array
         }
     }
     else
@@ -79,10 +93,7 @@ int read_file(char *values,string file_name)
         return 0;
     }
     fclose(source);
-
-    /* Add null to end string */
-    values[i] = '\0';
-}
+}*/
 
 void *get_in_addr(struct sockaddr *sa)
 {
@@ -94,23 +105,98 @@ void *get_in_addr(struct sockaddr *sa)
 }
 
 
-void stop_and_wait(char values[]){
+int send_and_wait(string file_name,int file_sz, int sockfd, struct sockaddr_storage their_addr, socklen_t addr_len)
+{
+
+    struct packet p;
+    int counter = 0;
+    int numbytes;
+    bool first_time = true ;
+    FILE *source;
+    int i;
+    char c;
+    source = fopen(file_name.c_str(), "r+b");
+
+    fseek(source, 0, SEEK_SET);
+
+    if (source != NULL)
+    {
+
+        for( i = 0 ; i < file_sz; i++)
+        {
+            p.data[i%500] = fgetc(source);
+
+            if((i+1)%500 == 0 || i == (file_sz-1))
+            {
+                p.len = ( (i+1)%500 ==0 )? 500 : (i+1)%500;
+                p.seqno = counter++;
+
+                while(1)
+                {
+
+
+                    if ((numbytes = sendto(sockfd,(struct packet*)&p, sizeof(p), 0,
+                                           (struct sockaddr *)&their_addr, addr_len)) == -1)
+                    {
+                        perror("talker: sendto");
+                        exit(1);
+                    }
+
+
+                    struct ack_packet acknowledgement;
+
+                    timeval timeout = { 1, 0 };
+                    fd_set in_set;
+
+                    FD_ZERO(&in_set);
+                    FD_SET(sockfd, &in_set);
+
+                    // select the set
+                    int cnt = select(sockfd + 1, &in_set, NULL, NULL, &timeout);
+
+                    if (FD_ISSET(sockfd, &in_set))
+                    {
+                        if ((numbytes = recvfrom(sockfd,(struct ack_packet*)&acknowledgement, sizeof(acknowledgement), 0,
+                                                 (struct sockaddr *)&their_addr, &addr_len)) == -1)
+                        {
+                            perror("recvfrom");
+                            exit(1);
+                        }
+
+
+                        if(probability_recieve()){
+                            //cout<< "receive ack num: "<<acknowledgement.ackno<<endl;
+                             break;
+                        }
+                    }
+                    cout<< "timeout ack num: "<<acknowledgement.ackno<<endl;
+                }
+            }
+
+
+
+
+        }
+
+    }
+    else
+    {
+        printf("File not found.\n");
+        return 0;
+    }
+    fclose(source);
 
 }
 /**
     this function to send the packets to the client
     @file_name the name of the file
 */
-void send_packets(string file_name)
+void send_packets(string file_name, int sockfd, struct sockaddr_storage their_addr, socklen_t addr_len)
 {
     cout<<file_name<<endl;
-    char values[get_file_size(file_name)] ;
-    read_file(values,file_name);
-    cout<<"values:"<<values<<endl;
-
-    /// here create a packet
-    stop_and_wait(values);
+    send_and_wait(file_name,get_file_size(file_name), sockfd, their_addr, addr_len);
 }
+
 int main(void)
 {
     int sockfd;
@@ -165,7 +251,7 @@ int main(void)
         exit(1);
     }
 
-     buf[numbytes] = '\0';
+    buf[numbytes] = '\0';
 
     char * ack_message = "ACK File" ;
     if ((numbytes = sendto(sockfd,ack_message, strlen(ack_message), 0,
@@ -174,13 +260,10 @@ int main(void)
         perror("talker: sendto");
         exit(1);
     }
+    // (char values[], int sockfd, struct sockaddr_storage their_addr, socklen_t addr_len)
+    send_packets(buf, sockfd, their_addr, addr_len);
 
-    send_packets(buf);
 
-    printf("listener: got packet from %s\n",
-           inet_ntop(their_addr.ss_family,
-                     get_in_addr((struct sockaddr *)&their_addr),
-                     s, sizeof s));
 
     return 0;
 }
