@@ -36,6 +36,8 @@
 #define MAXBUFLEN 100
 #define PACKET_SIZE 500
 
+int seed = 5 ;
+
 using namespace std;
 
 /**
@@ -52,6 +54,12 @@ int get_file_size(string file_name)
     fclose(source);
     return sz;
 
+}
+
+bool probability_recieve(){
+    int p= (rand() % 100) + 1;
+    cout<<"probability of receive "<<p<<endl;
+    return p > seed ;
 }
 /**
     this function to read the requested file
@@ -137,7 +145,7 @@ int send_and_wait(string file_name,int file_sz, int sockfd, struct sockaddr_stor
 
                     struct ack_packet acknowledgement;
 
-                    timeval timeout = { 3, 0 };
+                    timeval timeout = { 1, 0 };
                     fd_set in_set;
 
                     FD_ZERO(&in_set);
@@ -146,7 +154,6 @@ int send_and_wait(string file_name,int file_sz, int sockfd, struct sockaddr_stor
                     // select the set
                     int cnt = select(sockfd + 1, &in_set, NULL, NULL, &timeout);
 
-                    //cout << "cnt: "<<cnt<<endl;
                     if (FD_ISSET(sockfd, &in_set))
                     {
                         if ((numbytes = recvfrom(sockfd,(struct ack_packet*)&acknowledgement, sizeof(acknowledgement), 0,
@@ -156,8 +163,11 @@ int send_and_wait(string file_name,int file_sz, int sockfd, struct sockaddr_stor
                             exit(1);
                         }
 
-                        cout<< "receive ack num: "<<acknowledgement.ackno<<endl;
-                        break;
+
+                        if(probability_recieve()){
+                            //cout<< "receive ack num: "<<acknowledgement.ackno<<endl;
+                             break;
+                        }
                     }
                     cout<< "timeout ack num: "<<acknowledgement.ackno<<endl;
                 }
