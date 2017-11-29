@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <fstream>
 #include <sstream>
+#include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/sendfile.h>
 #include <fcntl.h>
@@ -31,10 +32,13 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <algorithm>
+#include <sys/time.h>
 #include "packet_struct.h"
 #define MYPORT "4950" // the port users will be connecting to
-#define MAXBUFLEN 100
+#define MAXBUFLEN 1000
 #define PACKET_SIZE 500
+#include <map>
+
 
 int seed = 5 ;
 
@@ -56,45 +60,21 @@ int get_file_size(string file_name)
 
 }
 
-bool probability_recieve(){
+/**
+    this function to calculate the probability of receiving an acknowledgment
+*/
+bool probability_recieve()
+{
     int p= (rand() % 100) + 1;
     cout<<"probability of receive "<<p<<endl;
     return p > seed ;
 }
+
 /**
     this function to read the requested file
     @param values to put the data into it
     @file_name the name of the file
 */
-/*int read_file(char *values,string file_name,int sz, int start, int end)
-{
-    FILE *source;
-    int i;
-    char c;
-    source = fopen(file_name.c_str(), "r+b");
-
-    fseek(source, 0, SEEK_SET);
-
-    if (source != NULL)
-    {
-        int counter = 0;
-        for(int j = 0 ; j < start ; j++)
-            c = fgetc(source);
-
-        for ( i = start; i < min(end,sz); i++)
-        {
-            c = fgetc(source); // Get character
-            values[counter++] = c; // Store characters in array
-        }
-    }
-    else
-    {
-        printf("File not found.\n");
-        return 0;
-    }
-    fclose(source);
-}*/
-
 void *get_in_addr(struct sockaddr *sa)
 {
     if (sa->sa_family == AF_INET)
@@ -105,6 +85,14 @@ void *get_in_addr(struct sockaddr *sa)
 }
 
 
+/**
+    this function to send the file using send and wait approach
+    @param file_name the name of requested file
+    @param file_sz the size of the file
+    @param sockfd the socket number of the client
+    @param their_addr the address information of client
+    @param addr_len the address length of the client
+*/
 int send_and_wait(string file_name,int file_sz, int sockfd, struct sockaddr_storage their_addr, socklen_t addr_len)
 {
 
@@ -113,27 +101,29 @@ int send_and_wait(string file_name,int file_sz, int sockfd, struct sockaddr_stor
     int numbytes;
     bool first_time = true ;
     FILE *source;
-    int i;
     char c;
-    source = fopen(file_name.c_str(), "r+b");
 
+    // open the file
+    source = fopen(file_name.c_str(), "r+b");
     fseek(source, 0, SEEK_SET);
 
+    // check the existence of the file
     if (source != NULL)
     {
 
-        for( i = 0 ; i < file_sz; i++)
+        for( int i = 0 ; i < file_sz; i++)
         {
-            p.data[i%500] = fgetc(source);
+            // put the data in packet
+            p.data[i%PACKET_SIZE] = fgetc(source);
 
-            if((i+1)%500 == 0 || i == (file_sz-1))
+            // check if reach the packet size or it is the last packet
+            if((i+1)%PACKET_SIZE == 0 || i == (file_sz-1))
             {
-                p.len = ( (i+1)%500 ==0 )? 500 : (i+1)%500;
+                p.len = ( (i+1)%PACKET_SIZE ==0 )? PACKET_SIZE : (i+1)%PACKET_SIZE;
                 p.seqno = counter++;
 
                 while(1)
                 {
-
 
                     if ((numbytes = sendto(sockfd,(struct packet*)&p, sizeof(p), 0,
                                            (struct sockaddr *)&their_addr, addr_len)) == -1)
@@ -145,13 +135,11 @@ int send_and_wait(string file_name,int file_sz, int sockfd, struct sockaddr_stor
 
                     struct ack_packet acknowledgement;
 
+                    // set the time out = 1 s
                     timeval timeout = { 1, 0 };
                     fd_set in_set;
-
                     FD_ZERO(&in_set);
                     FD_SET(sockfd, &in_set);
-
-                    // select the set
                     int cnt = select(sockfd + 1, &in_set, NULL, NULL, &timeout);
 
                     if (FD_ISSET(sockfd, &in_set))
@@ -164,27 +152,162 @@ int send_and_wait(string file_name,int file_sz, int sockfd, struct sockaddr_stor
                         }
 
 
-                        if(probability_recieve()){
-                            //cout<< "receive ack num: "<<acknowledgement.ackno<<endl;
-                             break;
+                        if(probability_recieve())
+                        {
+                            break;
                         }
                     }
                     cout<< "timeout ack num: "<<acknowledgement.ackno<<endl;
                 }
             }
 
-
-
-
         }
-
+        fclose(source);
     }
     else
     {
         printf("File not found.\n");
         return 0;
     }
-    fclose(source);
+
+
+}
+
+
+/**
+*/
+
+/**
+*/
+
+void selective_repeat(string file_name,int file_sz, int sockfd, struct sockaddr_storage their_addr, socklen_t addr_len)
+{
+    map<uint32_t,packet> buffer ;
+    vector<uint32_t> order_list ;
+    int window_size = 1 ;
+    int max_window_size = 10 ;
+
+    struct packet p;
+    int counter = 0;
+    int numbytes;
+    bool first_time = true ;
+    FILE *source;
+    int i;
+    char c;
+    source = fopen(file_name.c_str(), "r+b");
+
+    fseek(source, 0, SEEK_SET);
+    if (source != NULL)
+    {
+
+        for( i = 0 ; i < file_sz; i++)
+        {
+            p.data[i%PACKET_SIZE] = fgetc(source);
+
+            if((i+1)%PACKET_SIZE == 0 || i == (file_sz-1))
+            {
+
+                while(order_list.size() == 0 || !(buffer.size() < max_window_size && (order_list[order_list.size()-1]-order_list[0] +1) < max_window_size))
+                {
+                    if(order_list.size() == 0 || (buffer.size() < max_window_size && (order_list[order_list.size()-1]-order_list[0] +1) < max_window_size))
+                    {
+                        p.len = ( (i+1)%PACKET_SIZE ==0 )? PACKET_SIZE : (i+1)%PACKET_SIZE;
+                        p.seqno = counter++;
+
+
+                        if ((numbytes = sendto(sockfd,(struct packet*)&p, sizeof(p), 0,
+                                               (struct sockaddr *)&their_addr, addr_len)) == -1)
+                        {
+                            perror("talker: sendto");
+                            exit(1);
+                        }
+                        p.timer = time(NULL);
+
+                        buffer.insert(std::pair<uint32_t,packet> (p.seqno,p));
+                        order_list.push_back(p.seqno);
+                        window_size++;
+                    }
+
+
+                    // rec ack from client
+
+                    struct ack_packet acknowledgement;
+
+                    timeval timeout = { 1, 0 };
+
+                    fd_set in_set;
+
+                    FD_ZERO(&in_set);
+                    FD_SET(sockfd, &in_set);
+
+                    // select the set
+                    int cnt = select(sockfd + 1, &in_set, NULL, NULL, &timeout);
+
+                    if (FD_ISSET(sockfd, &in_set))
+                    {
+
+                        if ((numbytes = recvfrom(sockfd,(struct ack_packet*)&acknowledgement, sizeof(acknowledgement), 0,
+                                                 (struct sockaddr *)&their_addr, &addr_len)) == -1)
+                        {
+                            perror("recvfrom");
+                            exit(1);
+                        }
+
+
+                        if(probability_recieve())
+                        {
+                            //cout<< "receive ack num: "<<acknowledgement.ackno<<endl;
+                            break;
+                        }
+                        else
+                        {
+
+                            buffer.erase (acknowledgement.ackno);
+                            order_list.erase(std::remove(order_list.begin(), order_list.end(), acknowledgement.ackno), order_list.end());
+
+                        }
+
+
+
+                    }
+
+
+                    // after rcv check time out
+                    for (std::map<uint32_t,packet>::iterator it=buffer.begin(); it!=buffer.end(); ++it)
+                    {
+                        struct packet  datagram= it->second ;
+                        double duration = time(NULL)-datagram.timer;
+                        if(duration > 5)
+                        {
+                            if ((numbytes = sendto(sockfd,(struct packet*)&datagram, sizeof(datagram), 0,
+                                                   (struct sockaddr *)&their_addr, addr_len)) == -1)
+                            {
+                                perror("talker: sendto");
+                                exit(1);
+                            }
+                            datagram.timer = time(NULL);
+                            buffer.erase(datagram.seqno);
+                            buffer.insert(std::pair<uint32_t,packet> (datagram.seqno,datagram));
+                        }
+
+                    }
+
+
+                }
+            }
+
+        }
+
+        fclose(source);
+    }
+
+    else
+    {
+        printf("File not found.\n");
+    }
+
+
+
 
 }
 /**
@@ -194,7 +317,12 @@ int send_and_wait(string file_name,int file_sz, int sockfd, struct sockaddr_stor
 void send_packets(string file_name, int sockfd, struct sockaddr_storage their_addr, socklen_t addr_len)
 {
     cout<<file_name<<endl;
-    send_and_wait(file_name,get_file_size(file_name), sockfd, their_addr, addr_len);
+   // send_and_wait(file_name,get_file_size(file_name), sockfd, their_addr, addr_len);
+
+    selective_repeat(file_name,get_file_size(file_name), sockfd, their_addr, addr_len);
+
+
+
 }
 
 int main(void)
