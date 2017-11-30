@@ -40,7 +40,7 @@
 #include <map>
 
 
-int seed = 5 ;
+int seed = 20 ;
 
 using namespace std;
 
@@ -184,8 +184,8 @@ void selective_repeat(string file_name,int file_sz, int sockfd, struct sockaddr_
 {
     map<uint32_t,packet> buffer ;
     vector<uint32_t> order_list ;
-    int window_size = 1 ;
-    int max_window_size = 10 ;
+    int window_size = 0 ;
+    int max_window_size = 20 ;
 
     struct packet p;
     int counter = 0;
@@ -195,7 +195,7 @@ void selective_repeat(string file_name,int file_sz, int sockfd, struct sockaddr_
     int i;
     char c;
     source = fopen(file_name.c_str(), "r+b");
-
+    int last_packet = -1;
     fseek(source, 0, SEEK_SET);
     if (source != NULL)
     {
@@ -203,17 +203,26 @@ void selective_repeat(string file_name,int file_sz, int sockfd, struct sockaddr_
         for( i = 0 ; i < file_sz; i++)
         {
             p.data[i%PACKET_SIZE] = fgetc(source);
-
+            bool enter  = true;
             if((i+1)%PACKET_SIZE == 0 || i == (file_sz-1))
             {
 
-                while(order_list.size() == 0 || !(buffer.size() < max_window_size && (order_list[order_list.size()-1]-order_list[0] +1) < max_window_size))
+                while((i== file_sz-1 && buffer.size()!=0)||enter || !(buffer.size() < max_window_size && (order_list.size() == 0 ||((order_list[order_list.size()-1]-order_list[0] +1) < max_window_size))))
                 {
-                    if(order_list.size() == 0 || (buffer.size() < max_window_size && (order_list[order_list.size()-1]-order_list[0] +1) < max_window_size))
+
+                    enter = false;
+                    if((last_packet != i)&&(order_list.size() == 0 || (buffer.size() < max_window_size && (order_list[order_list.size()-1]-order_list[0] +1) < max_window_size)))
                     {
+
+                        cout<<"create a packet with" <<counter<<endl;
                         p.len = ( (i+1)%PACKET_SIZE ==0 )? PACKET_SIZE : (i+1)%PACKET_SIZE;
                         p.seqno = counter++;
+                        last_packet = i;
 
+                        if(counter==407)
+                        {
+                            cout<<"here";
+                        }
 
                         if ((numbytes = sendto(sockfd,(struct packet*)&p, sizeof(p), 0,
                                                (struct sockaddr *)&their_addr, addr_len)) == -1)
@@ -225,7 +234,7 @@ void selective_repeat(string file_name,int file_sz, int sockfd, struct sockaddr_
 
                         buffer.insert(std::pair<uint32_t,packet> (p.seqno,p));
                         order_list.push_back(p.seqno);
-                        window_size++;
+
                     }
 
 
@@ -254,10 +263,11 @@ void selective_repeat(string file_name,int file_sz, int sockfd, struct sockaddr_
                         }
 
 
-                        if(probability_recieve())
+                        if(!probability_recieve())
                         {
                             //cout<< "receive ack num: "<<acknowledgement.ackno<<endl;
-                            break;
+
+
                         }
                         else
                         {
@@ -271,13 +281,13 @@ void selective_repeat(string file_name,int file_sz, int sockfd, struct sockaddr_
 
                     }
 
-
+                    cout<<buffer.size()<<"/////////////////////////////////"<<endl;
                     // after rcv check time out
-                    for (std::map<uint32_t,packet>::iterator it=buffer.begin(); it!=buffer.end(); ++it)
-                    {
-                        struct packet  datagram= it->second ;
-                        double duration = time(NULL)-datagram.timer;
-                        if(duration > 5)
+
+                    for(auto const& value: order_list) {
+                        struct packet  datagram= buffer[value] ;
+                         double duration = time(NULL)-datagram.timer;
+                        if(duration > 1)
                         {
                             if ((numbytes = sendto(sockfd,(struct packet*)&datagram, sizeof(datagram), 0,
                                                    (struct sockaddr *)&their_addr, addr_len)) == -1)
@@ -291,6 +301,20 @@ void selective_repeat(string file_name,int file_sz, int sockfd, struct sockaddr_
                         }
 
                     }
+                    cout<<buffer.size()<<"/////////////////////////////////"<<endl;
+
+
+                    /*
+                    for( const auto& sm_pair : myMap )
+                    {
+                    std::cout << sm_pair.first << '\n' ;
+                    for( const auto& sc_pair : sm_pair.second )
+                    {
+                    std::cout << "     " << sc_pair.first << '{' << sc_pair.second.a << ','
+                          << sc_pair.second.b << ',' << sc_pair.second.d << "}\n" ;
+                    }
+                    }
+                    */
 
 
                 }
@@ -317,7 +341,7 @@ void selective_repeat(string file_name,int file_sz, int sockfd, struct sockaddr_
 void send_packets(string file_name, int sockfd, struct sockaddr_storage their_addr, socklen_t addr_len)
 {
     cout<<file_name<<endl;
-   // send_and_wait(file_name,get_file_size(file_name), sockfd, their_addr, addr_len);
+    // send_and_wait(file_name,get_file_size(file_name), sockfd, their_addr, addr_len);
 
     selective_repeat(file_name,get_file_size(file_name), sockfd, their_addr, addr_len);
 
