@@ -37,6 +37,7 @@
 #define MYPORT "4950" // the port users will be connecting to
 #define MAXBUFLEN 1000
 #define PACKET_SIZE 500
+#define DURATION_INTERVAL 5
 #include <map>
 
 
@@ -173,37 +174,42 @@ int send_and_wait(string file_name,int file_sz, int sockfd, struct sockaddr_stor
 
 }
 
-
 /**
-*/
-
-/**
+    this is selective repeat function send the file according to selective repeat approach
+    @param file_name the name of requested file
+    @param file_sz the size of the file
+    @param sockfd the socket number of the client
+    @param their_addr the address information of client
+    @param addr_len the address length of the client
 */
 
 void selective_repeat(string file_name,int file_sz, int sockfd, struct sockaddr_storage their_addr, socklen_t addr_len)
 {
     map<uint32_t,packet> buffer ;
     vector<uint32_t> order_list ;
-    int window_size = 0 ;
     int max_window_size = 20 ;
-
     struct packet p;
     int counter = 0;
     int numbytes;
-    bool first_time = true ;
     FILE *source;
     int i;
     char c;
-    source = fopen(file_name.c_str(), "r+b");
     int last_packet = -1;
+    bool enter = true;
+
+    // start read the file
+    source = fopen(file_name.c_str(), "r+b");
     fseek(source, 0, SEEK_SET);
+
     if (source != NULL)
     {
-
         for( i = 0 ; i < file_sz; i++)
         {
+
             p.data[i%PACKET_SIZE] = fgetc(source);
-            bool enter  = true;
+
+            enter  = true;
+
             if((i+1)%PACKET_SIZE == 0 || i == (file_sz-1))
             {
 
@@ -214,15 +220,9 @@ void selective_repeat(string file_name,int file_sz, int sockfd, struct sockaddr_
                     if((last_packet != i)&&(order_list.size() == 0 || (buffer.size() < max_window_size && (order_list[order_list.size()-1]-order_list[0] +1) < max_window_size)))
                     {
 
-                        cout<<"create a packet with" <<counter<<endl;
                         p.len = ( (i+1)%PACKET_SIZE ==0 )? PACKET_SIZE : (i+1)%PACKET_SIZE;
                         p.seqno = counter++;
                         last_packet = i;
-
-                        if(counter==407)
-                        {
-                            cout<<"here";
-                        }
 
                         if ((numbytes = sendto(sockfd,(struct packet*)&p, sizeof(p), 0,
                                                (struct sockaddr *)&their_addr, addr_len)) == -1)
@@ -232,6 +232,7 @@ void selective_repeat(string file_name,int file_sz, int sockfd, struct sockaddr_
                         }
                         p.timer = time(NULL);
 
+                        // put the packet in the buffer map and the vector list
                         buffer.insert(std::pair<uint32_t,packet> (p.seqno,p));
                         order_list.push_back(p.seqno);
 
@@ -239,17 +240,12 @@ void selective_repeat(string file_name,int file_sz, int sockfd, struct sockaddr_
 
 
                     // rec ack from client
-
                     struct ack_packet acknowledgement;
 
                     timeval timeout = { 1, 0 };
-
                     fd_set in_set;
-
                     FD_ZERO(&in_set);
                     FD_SET(sockfd, &in_set);
-
-                    // select the set
                     int cnt = select(sockfd + 1, &in_set, NULL, NULL, &timeout);
 
                     if (FD_ISSET(sockfd, &in_set))
@@ -265,7 +261,6 @@ void selective_repeat(string file_name,int file_sz, int sockfd, struct sockaddr_
 
                         if(!probability_recieve())
                         {
-                            //cout<< "receive ack num: "<<acknowledgement.ackno<<endl;
 
 
                         }
@@ -281,13 +276,14 @@ void selective_repeat(string file_name,int file_sz, int sockfd, struct sockaddr_
 
                     }
 
-                    cout<<buffer.size()<<"/////////////////////////////////"<<endl;
-                    // after rcv check time out
+                    // check the buffer list of not acknowledged packets
+                    for(auto const& value: order_list)
+                    {
 
-                    for(auto const& value: order_list) {
                         struct packet  datagram= buffer[value] ;
-                         double duration = time(NULL)-datagram.timer;
-                        if(duration > 1)
+                        double duration = time(NULL)-datagram.timer;
+
+                        if(duration >  DURATION_INTERVAL)
                         {
                             if ((numbytes = sendto(sockfd,(struct packet*)&datagram, sizeof(datagram), 0,
                                                    (struct sockaddr *)&their_addr, addr_len)) == -1)
@@ -301,20 +297,6 @@ void selective_repeat(string file_name,int file_sz, int sockfd, struct sockaddr_
                         }
 
                     }
-                    cout<<buffer.size()<<"/////////////////////////////////"<<endl;
-
-
-                    /*
-                    for( const auto& sm_pair : myMap )
-                    {
-                    std::cout << sm_pair.first << '\n' ;
-                    for( const auto& sc_pair : sm_pair.second )
-                    {
-                    std::cout << "     " << sc_pair.first << '{' << sc_pair.second.a << ','
-                          << sc_pair.second.b << ',' << sc_pair.second.d << "}\n" ;
-                    }
-                    }
-                    */
 
 
                 }
@@ -341,7 +323,7 @@ void selective_repeat(string file_name,int file_sz, int sockfd, struct sockaddr_
 void send_packets(string file_name, int sockfd, struct sockaddr_storage their_addr, socklen_t addr_len)
 {
     cout<<file_name<<endl;
-    // send_and_wait(file_name,get_file_size(file_name), sockfd, their_addr, addr_len);
+     //send_and_wait(file_name,get_file_size(file_name), sockfd, their_addr, addr_len);
 
     selective_repeat(file_name,get_file_size(file_name), sockfd, their_addr, addr_len);
 
@@ -395,27 +377,30 @@ int main(void)
     printf("listener: waiting to recvfrom...\n");
     addr_len = sizeof their_addr;
 
-
-    if ((numbytes = recvfrom(sockfd, buf, MAXBUFLEN-1, 0,
-                             (struct sockaddr *)&their_addr, &addr_len)) == -1)
+    while(1)
     {
-        perror("recvfrom");
-        exit(1);
+        printf("listener: waiting to recvfrom...\n");
+
+        if ((numbytes = recvfrom(sockfd, buf, MAXBUFLEN-1, 0,
+                                 (struct sockaddr *)&their_addr, &addr_len)) == -1)
+        {
+            perror("recvfrom");
+            exit(1);
+        }
+
+        buf[numbytes] = '\0';
+
+        char * ack_message = "ACK File" ;
+        if ((numbytes = sendto(sockfd,ack_message, strlen(ack_message), 0,
+                               (struct sockaddr *)&their_addr, addr_len)) == -1)
+        {
+            perror("talker: sendto");
+            exit(1);
+        }
+        // (char values[], int sockfd, struct sockaddr_storage their_addr, socklen_t addr_len)
+        send_packets(buf, sockfd, their_addr, addr_len);
+
     }
-
-    buf[numbytes] = '\0';
-
-    char * ack_message = "ACK File" ;
-    if ((numbytes = sendto(sockfd,ack_message, strlen(ack_message), 0,
-                           (struct sockaddr *)&their_addr, addr_len)) == -1)
-    {
-        perror("talker: sendto");
-        exit(1);
-    }
-    // (char values[], int sockfd, struct sockaddr_storage their_addr, socklen_t addr_len)
-    send_packets(buf, sockfd, their_addr, addr_len);
-
-
 
     return 0;
 }
