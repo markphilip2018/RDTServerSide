@@ -345,6 +345,49 @@ void send_packets(bool wait_repeat_bool,string file_name, int sockfd, struct soc
         selective_repeat(file_name,get_file_size(file_name), sockfd, their_addr, addr_len);
 }
 
+/**
+    @param void
+    creates new socket file without binding it to the port number
+    @return the brand new created socket
+*/
+
+int get_new_socket_fd()
+{
+
+    int sockfd;
+    struct addrinfo hints, *servinfo, *p;
+    int rv;
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC; // set to AF_INET to force IPv4
+    hints.ai_socktype = SOCK_DGRAM;
+    hints.ai_flags = AI_PASSIVE; // use my IP
+
+    if ((rv = getaddrinfo(NULL, MYPORT, &hints, &servinfo)) != 0)
+    {
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+        return -1;
+    }
+// loop through all the results and bind to the first we can
+    for(p = servinfo; p != NULL; p = p->ai_next)
+    {
+        if ((sockfd = socket(p->ai_family, p->ai_socktype,
+                             p->ai_protocol)) == -1)
+        {
+            perror("listener: socket");
+            continue;
+        }
+        break;
+    }
+    if (p == NULL)
+    {
+        fprintf(stderr, "listener: failed to bind socket\n");
+        return -1;
+    }
+    freeaddrinfo(servinfo);
+
+    return sockfd ;
+}
+
 int main(void)
 {
     int sockfd;
@@ -363,7 +406,7 @@ int main(void)
     if ((rv = getaddrinfo(NULL, MYPORT, &hints, &servinfo)) != 0)
     {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
-        return 1;
+        return -1;
     }
 // loop through all the results and bind to the first we can
     for(p = servinfo; p != NULL; p = p->ai_next)
@@ -385,13 +428,14 @@ int main(void)
     if (p == NULL)
     {
         fprintf(stderr, "listener: failed to bind socket\n");
-        return 2;
+        return -1;
     }
     freeaddrinfo(servinfo);
     addr_len = sizeof their_addr;
 
     while(1)
     {
+        // wait for a new connection request
         printf("listener: waiting to recvfrom...\n");
 
         if ((numbytes = recvfrom(sockfd, buf, MAXBUFLEN-1, 0,
@@ -400,19 +444,29 @@ int main(void)
             perror("recvfrom");
             exit(1);
         }
-
+        // adding ull to terminal file name string
         buf[numbytes] = '\0';
 
-        char * ack_message = "ACK File" ;
-        if ((numbytes = sendto(sockfd,ack_message, strlen(ack_message), 0,
-                               (struct sockaddr *)&their_addr, addr_len)) == -1)
+        // creates new child to handle the client
+        if(!fork())
         {
-            perror("talker: sendto");
-            exit(1);
+            cout<<"new connection"<<endl;
+            // create new socket fd for the client
+            int new_sockfd = get_new_socket_fd();
+
+            char * ack_message = "ACK File" ;
+
+            // send the ACK on the new socket fd
+            if ((numbytes = sendto(new_sockfd,ack_message, strlen(ack_message), 0,
+                                   (struct sockaddr *)&their_addr, addr_len)) == -1)
+            {
+                perror("talker: sendto");
+                exit(1);
+            }
+
+            // send the remaining packets on the new socket fd
+            send_packets(true,buf, new_sockfd, their_addr, addr_len);
         }
-
-
-        send_packets(true,buf, sockfd, their_addr, addr_len);
 
     }
 
