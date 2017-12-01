@@ -37,11 +37,11 @@
 #define MYPORT "4950" // the port users will be connecting to
 #define MAXBUFLEN 1000
 #define PACKET_SIZE 500
-#define DURATION_INTERVAL 5
+#define DURATION_INTERVAL 2
 #include <map>
 
 
-int seed = 20 ;
+int seed = 5 ;
 
 using namespace std;
 
@@ -67,7 +67,8 @@ int get_file_size(string file_name)
 bool probability_recieve()
 {
     int p= (rand() % 100) + 1;
-    cout<<"probability of receive "<<p<<endl;
+    if(p <= seed )
+        cout<<"probability of receive "<<p<<endl;
     return p > seed ;
 }
 
@@ -213,12 +214,17 @@ void selective_repeat(string file_name,int file_sz, int sockfd, struct sockaddr_
             if((i+1)%PACKET_SIZE == 0 || i == (file_sz-1))
             {
 
-                while((i== file_sz-1 && buffer.size()!=0)||enter || !(buffer.size() < max_window_size && (order_list.size() == 0 ||((order_list[order_list.size()-1]-order_list[0] +1) < max_window_size))))
-                {
+                    /*
+                        (order_list.size() == 0 ||((order_list[order_list.size()-1]-order_list[0] +1) < max_window_size))
 
+                    */
+                while((i== file_sz-1 && buffer.size()!=0)||enter || !( (buffer.size() < max_window_size) && (order_list.size() == 0 ||((counter-order_list[0] ) < max_window_size))))
+                //while(1)
+                {
                     enter = false;
-                    if((last_packet != i)&&(order_list.size() == 0 || (buffer.size() < max_window_size && (order_list[order_list.size()-1]-order_list[0] +1) < max_window_size)))
+                    if((last_packet != i)&&(order_list.size() == 0 || ((order_list[order_list.size()-1]-order_list[0] +1) < max_window_size)))
                     {
+                        cout<<"creat packet num : "<<counter+1<<endl;
 
                         p.len = ( (i+1)%PACKET_SIZE ==0 )? PACKET_SIZE : (i+1)%PACKET_SIZE;
                         p.seqno = counter++;
@@ -280,9 +286,10 @@ void selective_repeat(string file_name,int file_sz, int sockfd, struct sockaddr_
                     for(auto const& value: order_list)
                     {
 
+
                         struct packet  datagram= buffer[value] ;
                         double duration = time(NULL)-datagram.timer;
-
+                        cout<<"datagram seq : "<<datagram.seqno<<endl;
                         if(duration >  DURATION_INTERVAL)
                         {
                             if ((numbytes = sendto(sockfd,(struct packet*)&datagram, sizeof(datagram), 0,
@@ -297,6 +304,13 @@ void selective_repeat(string file_name,int file_sz, int sockfd, struct sockaddr_
                         }
 
                     }
+                    //cout<<"sqnum: "<<p.seqno<<endl;
+                    //if(p.seqno == 180)
+                     //   cout<<"here";
+                    //if( (order_list.size() == 0 )|| (p.seqno-order_list[0]) < max_window_size){
+
+                       // break;
+                    //}
 
 
                 }
@@ -305,6 +319,14 @@ void selective_repeat(string file_name,int file_sz, int sockfd, struct sockaddr_
         }
 
         fclose(source);
+        //p.len=0;
+       // p.data="";
+      //  if ((numbytes = sendto(sockfd,(struct packet*)&p, sizeof(p), 0,
+                          //     (struct sockaddr *)&their_addr, addr_len)) == -1)
+      //  {
+       //     perror("talker: sendto");
+      //      exit(1);
+       // }
     }
 
     else
@@ -323,7 +345,7 @@ void selective_repeat(string file_name,int file_sz, int sockfd, struct sockaddr_
 void send_packets(string file_name, int sockfd, struct sockaddr_storage their_addr, socklen_t addr_len)
 {
     cout<<file_name<<endl;
-     //send_and_wait(file_name,get_file_size(file_name), sockfd, their_addr, addr_len);
+    //send_and_wait(file_name,get_file_size(file_name), sockfd, their_addr, addr_len);
 
     selective_repeat(file_name,get_file_size(file_name), sockfd, their_addr, addr_len);
 
