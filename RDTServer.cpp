@@ -496,9 +496,9 @@ void go_back_n(string file_name,int file_sz, int sockfd, struct sockaddr_storage
                                     perror("talker: sendto");
                                     exit(1);
                                 }
-                                //datagram.timer = time(NULL);
-                             //   buffer.erase(datagram.seqno);
-                               // buffer.insert(std::pair<uint32_t,packet> (datagram.seqno,datagram));
+                                datagram.timer = time(NULL);
+                                buffer.erase(datagram.seqno);
+                                buffer.insert(std::pair<uint32_t,packet> (datagram.seqno,datagram));
                             }
                         }
 
