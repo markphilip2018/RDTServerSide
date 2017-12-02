@@ -333,16 +333,175 @@ void selective_repeat(string file_name,int file_sz, int sockfd, struct sockaddr_
 
 
 }
+
+/**********************************************************************************************/
+/**
+    this is go back n function send the file according to go back n approach
+    @param file_name the name of requested file
+    @param file_sz the size of the file
+    @param sockfd the socket number of the client
+    @param their_addr the address information of client
+    @param addr_len the address length of the client
+*/
+
+void go_back_n(string file_name,int file_sz, int sockfd, struct sockaddr_storage their_addr, socklen_t addr_len)
+{
+    map<uint32_t,packet> buffer ;
+    vector<uint32_t> order_list ;
+    int max_window_size = 20 ;
+    struct packet p;
+    int counter = 0, three_ack = 0;
+    int numbytes;
+    FILE *source;
+    int i;
+    char c;
+    int last_packet = -1;
+    bool enter = true;
+
+    // start read the file
+    source = fopen(file_name.c_str(), "r+b");
+    fseek(source, 0, SEEK_SET);
+
+    if (source != NULL)
+    {
+        for( i = 0 ; i < file_sz; i++)
+        {
+
+            p.data[i%PACKET_SIZE] = fgetc(source);
+
+            enter  = true;
+
+            if((i+1)%PACKET_SIZE == 0 || i == (file_sz-1))
+            {
+
+                while((i== file_sz-1 && buffer.size()!=0)||enter || !( (buffer.size() < max_window_size) && (order_list.size() == 0 ||((counter-order_list[0] ) < max_window_size))))
+                {
+
+                    enter = false;
+                    if((last_packet != i)&&(order_list.size() == 0 || ((order_list[order_list.size()-1]-order_list[0] +1) < max_window_size)))
+                    {
+
+                        p.len = ( (i+1)%PACKET_SIZE ==0 )? PACKET_SIZE : (i+1)%PACKET_SIZE;
+                        p.seqno = counter++;
+                        last_packet = i;
+
+                        if ((numbytes = sendto(sockfd,(struct packet*)&p, sizeof(p), 0,
+                                               (struct sockaddr *)&their_addr, addr_len)) == -1)
+                        {
+                            perror("talker: sendto");
+                            exit(1);
+                        }
+                        p.timer = time(NULL);
+
+                        // put the packet in the buffer map and the vector list
+                        buffer.insert(std::pair<uint32_t,packet> (p.seqno,p));
+                        order_list.push_back(p.seqno);
+
+                    }
+
+
+                    // rec ack from client
+                    struct ack_packet acknowledgement;
+
+                    timeval timeout = { 1/100, 0 };
+                    fd_set in_set;
+                    FD_ZERO(&in_set);
+                    FD_SET(sockfd, &in_set);
+                    int cnt = select(sockfd + 1, &in_set, NULL, NULL, &timeout);
+
+                    if (FD_ISSET(sockfd, &in_set))
+                    {
+
+                        if ((numbytes = recvfrom(sockfd,(struct ack_packet*)&acknowledgement, sizeof(acknowledgement), 0,
+                                                 (struct sockaddr *)&their_addr, &addr_len)) == -1)
+                        {
+                            perror("recvfrom");
+                            exit(1);
+                        }
+
+
+                        if(probability_recieve())
+                        {
+                            if(std::find(order_list.begin(), order_list.end(), acknowledgement.ackno) != order_list.end())
+                            {
+                                cout<<"ack num : "<<acknowledgement.ackno<<endl;
+                                for(auto const& value: order_list)
+                                {
+                                    if(value <= acknowledgement.ackno)
+                                    {
+                                        buffer.erase (value);
+                                        order_list.erase(std::remove(order_list.begin(), order_list.end(), value), order_list.end());
+                                    }
+                                    else
+                                    {
+                                        break;
+                                    }
+                                }
+
+
+                            }
+
+                        }
+
+
+
+
+                    }
+
+                    if(order_list.size() != 0)
+                    {
+                        double duration = time(NULL)-buffer[order_list[0]].timer;
+
+                        if(duration >  DURATION_INTERVAL)
+                        {
+                            cout<<"timeout occurs for the first packet"<<endl;
+                            for(auto const& value: order_list)
+                            {
+                                cout<<"resend packet num: "<<value<<endl;
+                                struct packet  datagram= buffer[value] ;
+                                // max_window_size = 1;
+                                if ((numbytes = sendto(sockfd,(struct packet*)&datagram, sizeof(datagram), 0,
+                                                       (struct sockaddr *)&their_addr, addr_len)) == -1)
+                                {
+                                    perror("talker: sendto");
+                                    exit(1);
+                                }
+                                datagram.timer = time(NULL);
+                                buffer.erase(datagram.seqno);
+                                buffer.insert(std::pair<uint32_t,packet> (datagram.seqno,datagram));
+                            }
+                        }
+
+                    }
+                }
+            }
+
+        }
+
+        fclose(source);
+    }
+
+    else
+    {
+        printf("File not found.\n");
+    }
+
+
+
+
+}
 /**
     this function to send the packets to the client
     @file_name the name of the file
 */
-void send_packets(bool wait_repeat_bool,string file_name, int sockfd, struct sockaddr_storage their_addr, socklen_t addr_len)
+void send_packets(int wait_repeat_goback,string file_name, int sockfd, struct sockaddr_storage their_addr, socklen_t addr_len)
 {
-    if(wait_repeat_bool)
+    if(wait_repeat_goback == 1)
         send_and_wait(file_name,get_file_size(file_name), sockfd, their_addr, addr_len);
-    else
+    else if(wait_repeat_goback == 2)
         selective_repeat(file_name,get_file_size(file_name), sockfd, their_addr, addr_len);
+    else
+        go_back_n(file_name,get_file_size(file_name), sockfd, their_addr, addr_len);
 }
 
 /**
@@ -465,7 +624,7 @@ int main(void)
             }
 
             // send the remaining packets on the new socket fd
-            send_packets(true,buf, new_sockfd, their_addr, addr_len);
+            send_packets(3,buf, new_sockfd, their_addr, addr_len);
         }
 
     }
