@@ -40,7 +40,7 @@
 #define DURATION_INTERVAL 1
 #include <map>
 
-int seed = 1 ;
+int seed = 5 ;
 
 using namespace std;
 
@@ -70,6 +70,18 @@ bool probability_recieve()
         cout<<"probability of receive "<<p<<endl;
     return p > seed ;
 }
+
+/**
+    this function to calculate the probability of receiving an acknowledgment
+*/
+bool probability_checksum()
+{
+    int p= (rand() % 100) + 1;
+    if(p <= seed )
+        cout<<"probability of receive "<<p<<endl;
+    return p > 1 ;
+}
+
 
 /**
     this function to read the requested file
@@ -108,6 +120,8 @@ int send_and_wait(string file_name,int file_sz, int sockfd, struct sockaddr_stor
     source = fopen(file_name.c_str(), "r+b");
     fseek(source, 0, SEEK_SET);
 
+    p.cksum = 0;
+
     // check the existence of the file
     if (source != NULL)
     {
@@ -115,14 +129,22 @@ int send_and_wait(string file_name,int file_sz, int sockfd, struct sockaddr_stor
         for( int i = 0 ; i < file_sz; i++)
         {
             // put the data in packet
-            p.data[i%PACKET_SIZE] = fgetc(source);
+            c = fgetc(source);
+            p.data[i%PACKET_SIZE] = c;
+            p.cksum+=c;
 
             // check if reach the packet size or it is the last packet
             if((i+1)%PACKET_SIZE == 0 || i == (file_sz-1))
             {
                 p.len = ( (i+1)%PACKET_SIZE ==0 )? PACKET_SIZE : (i+1)%PACKET_SIZE;
                 p.seqno = counter++;
-
+                cout<< "checksum : "<<p.cksum<<endl;
+                p.cksum = ~p.cksum;
+                uint16_t correct = p.cksum;
+                if(!probability_checksum()){
+                    p.cksum+=1;
+                }
+                cout<< "checksum after: "<<p.cksum<<endl;
                 while(1)
                 {
 
@@ -132,6 +154,8 @@ int send_and_wait(string file_name,int file_sz, int sockfd, struct sockaddr_stor
                         perror("talker: sendto");
                         exit(1);
                     }
+                    p.cksum = correct;
+
 
 
                     struct ack_packet acknowledgement;
@@ -155,6 +179,7 @@ int send_and_wait(string file_name,int file_sz, int sockfd, struct sockaddr_stor
 
                         if(probability_recieve())
                         {
+                            p.cksum = 0;
                             break;
                         }
                     }
@@ -624,7 +649,7 @@ int main(void)
             }
 
             // send the remaining packets on the new socket fd
-            send_packets(3,buf, new_sockfd, their_addr, addr_len);
+            send_packets(1,buf, new_sockfd, their_addr, addr_len);
         }
 
     }
