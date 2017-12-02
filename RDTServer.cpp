@@ -34,15 +34,18 @@
 #include <algorithm>
 #include <sys/time.h>
 #include "packet_struct.h"
-#define MYPORT "4950" // the port users will be connecting to
 #define MAXBUFLEN 1000
 #define PACKET_SIZE 500
 #define DURATION_INTERVAL 1
 #include <map>
 
-int seed = 5 ;
-
 using namespace std;
+
+int seed = 5 ; // default probability of loss = 5%
+int max_window_size = 20 ; // default window size is 20
+int algo_type = 1; // algo type
+string MYPORT = "4950" ; // the port users will be connecting to
+
 
 /**
     this function to get the size of the requested file
@@ -141,7 +144,8 @@ int send_and_wait(string file_name,int file_sz, int sockfd, struct sockaddr_stor
                 cout<< "checksum : "<<p.cksum<<endl;
                 p.cksum = ~p.cksum;
                 uint16_t correct = p.cksum;
-                if(!probability_checksum()){
+                if(!probability_checksum())
+                {
                     p.cksum+=1;
                 }
                 cout<< "checksum after: "<<p.cksum<<endl;
@@ -212,7 +216,6 @@ void selective_repeat(string file_name,int file_sz, int sockfd, struct sockaddr_
 {
     map<uint32_t,packet> buffer ;
     vector<uint32_t> order_list ;
-    int max_window_size = 20 ;
     struct packet p;
     int counter = 0, three_ack = 0;
     int numbytes;
@@ -373,7 +376,6 @@ void go_back_n(string file_name,int file_sz, int sockfd, struct sockaddr_storage
 {
     map<uint32_t,packet> buffer ;
     vector<uint32_t> order_list ;
-    int max_window_size = 20 ;
     struct packet p;
     int counter = 0, three_ack = 0;
     int numbytes;
@@ -546,7 +548,7 @@ int get_new_socket_fd()
     hints.ai_socktype = SOCK_DGRAM;
     hints.ai_flags = AI_PASSIVE; // use my IP
 
-    if ((rv = getaddrinfo(NULL, MYPORT, &hints, &servinfo)) != 0)
+    if ((rv = getaddrinfo(NULL, MYPORT.c_str(), &hints, &servinfo)) != 0)
     {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
         return -1;
@@ -572,8 +574,41 @@ int get_new_socket_fd()
     return sockfd ;
 }
 
+void parse_args()
+{
+
+    string line;
+    ifstream infile("server.in");
+
+
+    getline(infile, line);
+    if(line.compare("null") != 0)
+        MYPORT =  line.c_str();
+
+    getline(infile, line);
+    if(line.compare("null") != 0)
+        max_window_size= atoi(line.c_str());
+
+    getline(infile, line);
+    if(line.compare("null") != 0)
+        seed= (int)(atof(line.c_str())*100);
+
+    getline(infile, line);
+    if(line.compare("null") != 0)
+        algo_type = atoi(line.c_str());
+
+
+    cout<<"Port : "<<MYPORT<<endl;
+    cout<<"Max window size : "<<max_window_size<<endl;
+    cout<<"Seed : "<<seed<<endl ;
+    cout<<"Algo : "<<algo_type<<endl ;
+
+}
+
 int main(void)
 {
+
+    parse_args();
     int sockfd;
     struct addrinfo hints, *servinfo, *p;
     int rv;
@@ -587,7 +622,7 @@ int main(void)
     hints.ai_socktype = SOCK_DGRAM;
     hints.ai_flags = AI_PASSIVE; // use my IP
 
-    if ((rv = getaddrinfo(NULL, MYPORT, &hints, &servinfo)) != 0)
+    if ((rv = getaddrinfo(NULL, MYPORT.c_str(), &hints, &servinfo)) != 0)
     {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
         return -1;
@@ -649,7 +684,7 @@ int main(void)
             }
 
             // send the remaining packets on the new socket fd
-            send_packets(1,buf, new_sockfd, their_addr, addr_len);
+            send_packets(algo_type,buf, new_sockfd, their_addr, addr_len);
         }
 
     }
