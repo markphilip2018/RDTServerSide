@@ -141,14 +141,12 @@ int send_and_wait(string file_name,int file_sz, int sockfd, struct sockaddr_stor
             {
                 p.len = ( (i+1)%PACKET_SIZE ==0 )? PACKET_SIZE : (i+1)%PACKET_SIZE;
                 p.seqno = counter++;
-                cout<< "checksum : "<<p.cksum<<endl;
                 p.cksum = ~p.cksum;
                 uint16_t correct = p.cksum;
                 if(!probability_checksum())
                 {
                     p.cksum+=1;
                 }
-                cout<< "checksum after: "<<p.cksum<<endl;
                 while(1)
                 {
 
@@ -247,6 +245,7 @@ void selective_repeat(string file_name,int file_sz, int sockfd, struct sockaddr_
                     enter = false;
                     if((last_packet != i)&&(order_list.size() == 0 || ((order_list[order_list.size()-1]-order_list[0] +1) < max_window_size)))
                     {
+                        cout<<"Create a packet num : "<<counter+1<<endl;
 
                         p.len = ( (i+1)%PACKET_SIZE ==0 )? PACKET_SIZE : (i+1)%PACKET_SIZE;
                         p.seqno = counter++;
@@ -298,6 +297,7 @@ void selective_repeat(string file_name,int file_sz, int sockfd, struct sockaddr_
 
                                     if(three_ack == 3)
                                     {
+                                        cout<<"Three acknowlegde happen"<<endl;
                                         struct packet old_packet = buffer[order_list[0]];
                                         if ((numbytes = sendto(sockfd,(struct packet*)&old_packet, sizeof(old_packet), 0,
                                                                (struct sockaddr *)&their_addr, addr_len)) == -1)
@@ -331,6 +331,7 @@ void selective_repeat(string file_name,int file_sz, int sockfd, struct sockaddr_
 
                         if(duration >  DURATION_INTERVAL)
                         {
+                            cout<<"resend packet number : "<<datagram.seqno<<endl;
                             max_window_size = 1;
                             if ((numbytes = sendto(sockfd,(struct packet*)&datagram, sizeof(datagram), 0,
                                                    (struct sockaddr *)&their_addr, addr_len)) == -1)
@@ -449,13 +450,15 @@ void go_back_n(string file_name,int file_sz, int sockfd, struct sockaddr_storage
 
                         if(probability_recieve())
                         {
-                            if(std::find(order_list.begin(), order_list.end(), acknowledgement.ackno) != order_list.end())
-                            {
-                                cout<<"ack num : "<<acknowledgement.ackno<<endl;
+                            //cout<<"ack num : ///////////////////////////////"<<acknowledgement.ackno<<endl;
+                           // if(std::find(order_list.begin(), order_list.end(), acknowledgement.ackno) != order_list.end())
+                           // {
+                               // cout<<"ack num : "<<acknowledgement.ackno<<endl;
                                 for(auto const& value: order_list)
                                 {
                                     if(value <= acknowledgement.ackno)
                                     {
+                                        //cout<<"remove : "<<value<<endl;
                                         buffer.erase (value);
                                         order_list.erase(std::remove(order_list.begin(), order_list.end(), value), order_list.end());
                                     }
@@ -463,7 +466,7 @@ void go_back_n(string file_name,int file_sz, int sockfd, struct sockaddr_storage
                                     {
                                         break;
                                     }
-                                }
+                                //}
 
 
                             }
@@ -484,7 +487,7 @@ void go_back_n(string file_name,int file_sz, int sockfd, struct sockaddr_storage
                             cout<<"timeout occurs for the first packet"<<endl;
                             for(auto const& value: order_list)
                             {
-                                cout<<"resend packet num: "<<value<<endl;
+                               // cout<<"resend packet num: "<<value<<endl;
                                 struct packet  datagram= buffer[value] ;
                                 // max_window_size = 1;
                                 if ((numbytes = sendto(sockfd,(struct packet*)&datagram, sizeof(datagram), 0,
@@ -493,9 +496,9 @@ void go_back_n(string file_name,int file_sz, int sockfd, struct sockaddr_storage
                                     perror("talker: sendto");
                                     exit(1);
                                 }
-                                datagram.timer = time(NULL);
-                                buffer.erase(datagram.seqno);
-                                buffer.insert(std::pair<uint32_t,packet> (datagram.seqno,datagram));
+                                //datagram.timer = time(NULL);
+                             //   buffer.erase(datagram.seqno);
+                               // buffer.insert(std::pair<uint32_t,packet> (datagram.seqno,datagram));
                             }
                         }
 
